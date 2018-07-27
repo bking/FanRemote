@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">FanRemote</string>
+    <string name="set_id">Set remote ID...</string>
+</resources>

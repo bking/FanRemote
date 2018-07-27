@@ -1,0 +1,119 @@
+#include <stdio.h>
+#include <ESP8266WiFi.h>
+#include <WiFiUdp.h>
+
+// D7 on the board
+const int OUT_PIN = 13;
+
+// Fan messages start with the preamble, then the bits set in the DIP switches on the remote, then the command.
+// The messages are repeated when the button is held down.
+
+const int PREAMBLE = 0x01;  // 01b;
+const int ID_MARY = 0x0B;   // 1011b;
+
+// Fan commands
+const int CMD_BITS = 7;
+
+const int CMD_LIGHT =         0x01; // 0000001b;
+const int CMD_FAN_OFF =       0x02; // 0000010b;
+const int CMD_FAN_REV =       0x04; // 0000100b;
+const int CMD_FAN_1 =         0x08; // 0001000b;
+const int CMD_FAN_2 =         0x10; // 0010000b;
+const int CMD_FAN_3 =         0x20; // 0100000b;
+
+const int CMDS[] = {CMD_LIGHT, CMD_FAN_OFF, CMD_FAN_REV, CMD_FAN_1, CMD_FAN_2, CMD_FAN_3};
+
+WiFiUDP Udp;
+unsigned int localUdpPort = 4210;
+char incomingPacket[255];
+char replyPacket[] = "Hi there! Got the message :-)";
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(OUT_PIN, OUTPUT);
+  digitalWrite(OUT_PIN, 0);
+  Serial.begin(115200);
+  WiFi.begin("Frodo", "ILoveLittleDogs!");
+  Serial.print("Connecting");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  Serial.print("Connected, IP address: ");
+  Serial.println(WiFi.localIP());
+
+  Udp.begin(localUdpPort);
+}
+
+void writeBit(int bitval) {
+  //Serial.write("WB");
+  if (bitval != 0) {
+    // Write a 1: Hold high for 700us
+    //Serial.write("1");
+    digitalWrite(OUT_PIN, 1);
+    delayMicroseconds(700);
+  } else {
+    // Write a 0: Hold high for 300us
+    //Serial.write("0");
+    delayMicroseconds(200);
+    digitalWrite(OUT_PIN, 1);
+    delayMicroseconds(300);
+  }
+  // Pull back low
+  digitalWrite(OUT_PIN, 0);
+  delayMicroseconds(500);
+  //Serial.println("WBO");
+}
+
+void writeBits(int bits, int count) {
+  for (int i = count - 1; i >= 0; i--) {
+    int val = (bits & (1 << i)) ? 1 : 0;
+    //Serial.write(val ? "1" : "0");
+    writeBit(bits & (1 << i));
+  }
+  //Serial.println("");
+}
+
+void writeCommand(int destination, int command) {
+  // Write the preamble
+  Serial.printf("writeCommand: dest 0x%02X cmd: 0x%02X\n", destination, command);
+  writeBits(1, 2);
+  writeBits(destination, 4);
+  writeBits(command, 7);
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  //Serial.println("Loop!");
+  // writeCommand(CMD_FAN_OFF);
+  //digitalWrite(OUT_PIN, 1);
+  //delay(500);
+  //digitalWrite(OUT_PIN, 0);
+  int packetSize = Udp.parsePacket();
+  if (packetSize)
+  {
+    Serial.printf("Received %d bytes from %s, port %d\n", packetSize, Udp.remoteIP().toString().c_str(), Udp.remotePort());
+    int len = Udp.read(incomingPacket, 255);
+    if (len >= 0)
+    {
+      incomingPacket[len] = 0;
+    }
+
+    if (len == 2) {
+      int fanId = incomingPacket[0];
+      int cmd = incomingPacket[1];
+      Serial.printf("Got command! Dest: 0x%02X  Cmd: 0x%02X\n", fanId, cmd);
+      for (int i = 0; i < 3; i++) {
+        writeCommand(fanId, cmd);
+        delay(1);
+      }
+      
+      //Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+      //Udp.write(replyPacket);
+      //Udp.endPacket();
+      Serial.printf("UDP packet contents: %s\n", incomingPacket);
+    }
+  }
+}
